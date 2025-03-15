@@ -1,0 +1,106 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"log"
+	"os"
+	"os/signal"
+
+	"github.com/joho/godotenv"
+	dbpkg "github.com/thehxdev/bahador/db"
+	"github.com/thehxdev/bahador/telbot"
+	"github.com/thehxdev/bahador/utils"
+)
+
+const (
+	updatesLimit   int = 100
+	updatesTimeout int = 30
+	defaultDBSchemaPath string = "dbschema.sql"
+)
+
+var dbSchemaPath string = "dbschema.sql"
+
+func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Fatal(err)
+	}
+	_ = os.Setenv("GOGC", "50")
+
+	flag.StringVar(&dbSchemaPath, "dbschema", defaultDBSchemaPath, "path to a file that defines database schema")
+	addUser := flag.Int("add-user", -1, "add a new user to database")
+	flag.Parse()
+
+	app, err := AppNew()
+	utils.MustBeNil(err)
+	db := app.DB
+
+	if *addUser > 0 {
+		utils.MustBeNil(db.UserInsert(dbpkg.User{
+			UserId:  *addUser,
+			IsAdmin: false,
+		}))
+		return
+	}
+
+	appCtx, appCancel := context.WithCancel(context.Background())
+	utils.MustBeNil(app.InitBot(appCtx))
+	bot := app.Bot
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt)
+	go func() {
+		<-sigChan
+		go func() {
+			// force exit
+			<-sigChan
+			os.Exit(1)
+		}()
+		app.Log.Println("shutting down")
+		if err := db.Close(); err != nil {
+			db.Log.Println(err)
+		}
+		app.Bot.Shutdown()
+		appCancel()
+	}()
+
+	updatesChan, err := bot.StartPolling(telbot.UpdateParams{
+		Offset:         0,
+		Timeout:        updatesTimeout,
+		Limit:          updatesLimit,
+		AllowedUpdates: []string{"message"},
+	})
+
+	// go func() {
+	// 	msg, err := app.UploadFile(&bot, "D:\\test.zip")
+	// 	if err != nil {
+	// 		log.Fatal(err)
+	// 	}
+	//
+	// 	fmt.Printf("%#v\n", msg)
+	// 	if msg.Document != nil {
+	// 		fmt.Printf("%#v\n", msg.Document)
+	// 	}
+	// }()
+
+	echoAuthHandler := app.AuthMiddleware(app.EchoHandler)
+	go func() {
+		bot.Log.Println("polling updates")
+		for update := range updatesChan {
+			if update.Message.Text != "" && update.Message.Chat.Type == telbot.ChatTypePrivate {
+				go func(update telbot.Update) {
+					switch update.Message.Text {
+					case "/start":
+						app.StartHandler(bot, &update)
+					case "/self":
+						app.SelfHandler(bot, &update)
+					default:
+						echoAuthHandler(bot, &update)
+					}
+				}(update)
+			}
+		}
+	}()
+
+	<-appCtx.Done()
+}

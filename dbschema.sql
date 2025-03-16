@@ -1,7 +1,5 @@
 CREATE TABLE users (
     user_id BIGINT PRIMARY KEY,
-    first_name TEXT,
-    username TEXT,
     is_admin BOOLEAN NOT NULL CHECK(is_admin IN (0, 1))
 );
 

@@ -6,14 +6,14 @@ import (
 	"os"
 
 	"github.com/thehxdev/bahador/db"
-	"github.com/thehxdev/bahador/telbot"
 	"github.com/thehxdev/bahador/utils"
+	"github.com/thehxdev/telbot"
 )
 
 const (
-	tokenEnvVar         string = "BAHADOR_BOT_TOKEN"
-	hostEnvVar          string = "BAHADOR_BOT_HOST"
-	dbPathEnvVar        string = "BAHADOR_DB_PATH"
+	tokenEnvVar  string = "BAHADOR_BOT_TOKEN"
+	hostEnvVar   string = "BAHADOR_BOT_HOST"
+	dbPathEnvVar string = "BAHADOR_DB_PATH"
 )
 
 type App struct {
@@ -23,7 +23,7 @@ type App struct {
 }
 
 func AppNew() (*App, error) {
-	var createNewDB bool = false
+	createNewDB := false
 	databasePath := utils.GetNonEmptyEnv(dbPathEnvVar)
 	if _, err := os.Open(databasePath); err != nil {
 		createNewDB = os.IsNotExist(err)
@@ -49,11 +49,11 @@ func AppNew() (*App, error) {
 
 func (app *App) InitBot(ctx context.Context) error {
 	botHost := utils.GetNonEmptyEnv(hostEnvVar)
-	bot, err := telbot.New(ctx, utils.GetNonEmptyEnv(tokenEnvVar), botHost)
+	bot, err := telbot.New(utils.GetNonEmptyEnv(tokenEnvVar), botHost)
 	if err != nil {
 		return err
 	}
 	app.Bot = bot
-	bot.Log.Println("telbot api host:", botHost)
+	app.Log.Println("telbot api host:", botHost)
 	return nil
 }

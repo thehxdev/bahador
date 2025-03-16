@@ -9,13 +9,13 @@ import (
 
 	"github.com/joho/godotenv"
 	dbpkg "github.com/thehxdev/bahador/db"
-	"github.com/thehxdev/bahador/telbot"
 	"github.com/thehxdev/bahador/utils"
+	"github.com/thehxdev/telbot"
 )
 
 const (
-	updatesLimit   int = 100
-	updatesTimeout int = 30
+	updatesLimit        int    = 100
+	updatesTimeout      int    = 30
 	defaultDBSchemaPath string = "dbschema.sql"
 )
 
@@ -72,11 +72,10 @@ func main() {
 	})
 
 	// go func() {
-	// 	msg, err := app.UploadFile(&bot, "D:\\test.zip")
+	// 	msg, err := app.UploadFile(bot, "D:\\test.zip")
 	// 	if err != nil {
 	// 		log.Fatal(err)
 	// 	}
-	//
 	// 	fmt.Printf("%#v\n", msg)
 	// 	if msg.Document != nil {
 	// 		fmt.Printf("%#v\n", msg.Document)
@@ -85,17 +84,21 @@ func main() {
 
 	echoAuthHandler := app.AuthMiddleware(app.EchoHandler)
 	go func() {
-		bot.Log.Println("polling updates")
+		app.Log.Println("polling updates")
 		for update := range updatesChan {
 			if update.Message.Text != "" && update.Message.Chat.Type == telbot.ChatTypePrivate {
 				go func(update telbot.Update) {
+					var err error
 					switch update.Message.Text {
 					case "/start":
-						app.StartHandler(bot, &update)
+						err = app.StartHandler(bot, &update)
 					case "/self":
-						app.SelfHandler(bot, &update)
+						err = app.SelfHandler(bot, &update)
 					default:
-						echoAuthHandler(bot, &update)
+						err = echoAuthHandler(bot, &update)
+					}
+					if err != nil {
+						app.Log.Println(err)
 					}
 				}(update)
 			}

@@ -1,11 +1,12 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strconv"
 
-	"github.com/thehxdev/bahador/telbot"
+	"github.com/thehxdev/telbot"
 )
 
 func (app *App) UploadFile(b *telbot.Bot, path string) (*telbot.Message, error) {
@@ -21,7 +22,7 @@ func (app *App) UploadFile(b *telbot.Bot, path string) (*telbot.Message, error) 
 		Kind:     "document",
 	}
 
-	msg, err := b.UploadFile(telbot.UploadParams{ChatId: b.Self.Id}, fr)
+	msg, err := b.UploadFile(context.Background(), telbot.UploadParams{ChatId: b.Self.Id}, fr)
 	if err != nil {
 		return nil, err
 	}
@@ -29,32 +30,26 @@ func (app *App) UploadFile(b *telbot.Bot, path string) (*telbot.Message, error) 
 	return msg, nil
 }
 
-func (app *App) StartHandler(bot *telbot.Bot, update *telbot.Update) {
+func (app *App) StartHandler(bot *telbot.Bot, update *telbot.Update) error {
 	_, err := bot.SendMessage(telbot.TextMessageParams{
 		ChatId: update.Message.Chat.Id,
 		Text:   "Hello, World!",
 	})
-	if err != nil {
-		bot.Log.Println(err)
-	}
+	return err
 }
 
-func (app *App) SelfHandler(bot *telbot.Bot, update *telbot.Update) {
+func (app *App) SelfHandler(bot *telbot.Bot, update *telbot.Update) error {
 	_, err := bot.SendMessage(telbot.TextMessageParams{
 		ChatId: update.Message.Chat.Id,
 		Text:   strconv.Itoa(update.Message.From.Id),
 	})
-	if err != nil {
-		bot.Log.Println(err)
-	}
+	return err
 }
 
-func (app *App) EchoHandler(bot *telbot.Bot, update *telbot.Update) {
+func (app *App) EchoHandler(bot *telbot.Bot, update *telbot.Update) error {
 	_, err := bot.SendMessage(telbot.TextMessageParams{
 		ChatId: update.Message.Chat.Id,
 		Text:   update.Message.Text,
 	})
-	if err != nil {
-		bot.Log.Println(err)
-	}
+	return err
 }

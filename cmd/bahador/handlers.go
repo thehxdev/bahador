@@ -1,8 +1,8 @@
 package main
 
 import (
-	"fmt"
 	"context"
+	"net/url"
 	"os"
 	"strconv"
 	"time"
@@ -48,7 +48,7 @@ func (app *App) StartHandler(update telbot.Update) error {
 func (app *App) SelfHandler(update telbot.Update) error {
 	_, err := update.SendMessage(telbot.TextMessageParams{
 		ChatId: update.ChatId(),
-		Text:   strconv.Itoa(update.MessageId()),
+		Text:   strconv.Itoa(update.UserId()),
 	})
 	return err
 }
@@ -71,7 +71,7 @@ func (app *App) LinksMessageHandler(update telbot.Update) error {
 	}
 
 	job := dlJob{
-		url: update.Message.Text,
+		url:     update.Message.Text,
 		resChan: make(chan dlResult, 1),
 	}
 
@@ -85,25 +85,30 @@ func (app *App) LinksMessageHandler(update telbot.Update) error {
 	res := <-job.resChan
 	close(job.resChan)
 
-	if res.error != nil {
-		app.Log.Println(res.error)
-		statText = "Failed to download file."
-	} else {
-		statText = "File downloaded and uploaded!"
+	if err := res.error; err != nil {
+		app.Log.Println(err)
+		switch err.(type) {
+		case *EmptyFileNameError:
+			statText = err.Error()
+		case *MaxFileSizeError:
+			statText = err.Error()
+		case *IncompleteDownloadError:
+			statText = err.Error()
+		case *NonZeroStatusError:
+			statText = err.Error()
+		default:
+			statText = "failed to download file (probably internal server error)"
+		}
+		goto done
 	}
 
+	statText, _ = url.JoinPath(app.Bot.BaseFileUrl, res.msg.Document.FileId)
+
+done:
 	update.EditMessage(telbot.EditMessageTextParams{
-		ChatId: statMsg.Chat.Id,
+		ChatId:    statMsg.Chat.Id,
 		MessageId: statMsg.Id,
-		Text: statText,
+		Text:      statText,
 	})
-	if res.error != nil {
-		goto end
-	}
-
-	params.Text = fmt.Sprintf("%s/%s", app.Bot.BaseFileUrl, res.msg.Document.FileId)
-	update.SendMessage(params)
-
-end:
 	return conv.EndConversation
 }

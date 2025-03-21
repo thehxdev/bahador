@@ -1,8 +1,6 @@
 package main
 
-// TODO: report back download status periodacly in bot to user.
-
-// TODO: report back upload status periodaclty in bot to user.
+// TODO: report back download/upload status periodicly in bot to user.
 
 // TODO: Download files bigger than maxFileLimit to /tmp and break that in smaller parts with `rar` command.
 // upload all parts to bot, get download link for each file and send all links to user.
@@ -10,8 +8,6 @@ package main
 // TODO: Option to stop download/upload process by user.
 
 // TODO: Implement an admin user to control bot and register/unregister other users.
-
-// TODO: Compute each file hash to avoid uploading similar files.
 
 import (
 	"context"

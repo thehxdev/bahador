@@ -25,8 +25,8 @@ func (e *NonZeroStatusError) Error() string {
 }
 
 var (
-	ErrEmptyFileName = &EmptyFileNameError{}
-	ErrMaxFileSize   = &MaxFileSizeError{}
+	ErrEmptyFileName      = &EmptyFileNameError{}
+	ErrMaxFileSize        = &MaxFileSizeError{}
 	ErrIncompleteDownload = &IncompleteDownloadError{}
 	ErrNonZeroStatusCode  = &NonZeroStatusError{}
 )

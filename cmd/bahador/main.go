@@ -1,5 +1,18 @@
 package main
 
+// TODO: report back download status periodacly in bot to user.
+
+// TODO: report back upload status periodaclty in bot to user.
+
+// TODO: Download files bigger than maxFileLimit to /tmp and break that in smaller parts with `rar` command.
+// upload all parts to bot, get download link for each file and send all links to user.
+
+// TODO: Option to stop download/upload process by user.
+
+// TODO: Implement an admin user to control bot and register/unregister other users.
+
+// TODO: Compute each file hash to avoid uploading similar files.
+
 import (
 	"context"
 	"flag"
@@ -15,8 +28,8 @@ import (
 )
 
 const (
-	updatesLimit        int    = 100
-	updatesTimeout      int    = 30
+	getUpdatesLimit     int    = 100
+	getUpdatesTimeout   int    = 30
 	defaultDBSchemaPath string = "dbschema.sql"
 )
 
@@ -67,8 +80,8 @@ func main() {
 
 	updatesChan, err := bot.StartPolling(telbot.UpdateParams{
 		Offset:         0,
-		Timeout:        updatesTimeout,
-		Limit:          updatesLimit,
+		Limit:          getUpdatesLimit,
+		Timeout:        getUpdatesTimeout,
 		AllowedUpdates: []string{"message"},
 	})
 

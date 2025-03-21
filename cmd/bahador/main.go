@@ -11,6 +11,7 @@ import (
 	dbpkg "github.com/thehxdev/bahador/db"
 	"github.com/thehxdev/bahador/utils"
 	"github.com/thehxdev/telbot"
+	conv "github.com/thehxdev/telbot/ext/conversation"
 )
 
 const (
@@ -31,7 +32,8 @@ func main() {
 	addUser := flag.Int("add-user", -1, "add a new user to database")
 	flag.Parse()
 
-	app, err := AppNew()
+	appCtx, appCancel := context.WithCancel(context.Background())
+	app, err := AppNew(appCtx)
 	utils.MustBeNil(err)
 	db := app.DB
 
@@ -43,7 +45,6 @@ func main() {
 		return
 	}
 
-	appCtx, appCancel := context.WithCancel(context.Background())
 	utils.MustBeNil(app.InitBot(appCtx))
 	bot := app.Bot
 
@@ -71,37 +72,33 @@ func main() {
 		AllowedUpdates: []string{"message"},
 	})
 
-	// go func() {
-	// 	msg, err := app.UploadFile(bot, "D:\\test.zip")
-	// 	if err != nil {
-	// 		log.Fatal(err)
-	// 	}
-	// 	fmt.Printf("%#v\n", msg)
-	// 	if msg.Document != nil {
-	// 		fmt.Printf("%#v\n", msg.Document)
-	// 	}
-	// }()
+	uploadCommandAuth := app.AuthMiddleware(app.UploadCommandHandler)
+	getLinksConv, _ := conv.New([]telbot.UpdateHandlerFunc{uploadCommandAuth, app.LinksMessageHandler})
 
-	echoAuthHandler := app.AuthMiddleware(app.EchoHandler)
 	go func() {
 		app.Log.Println("polling updates")
 		for update := range updatesChan {
-			if update.Message.Text != "" && update.Message.Chat.Type == telbot.ChatTypePrivate {
-				go func(update telbot.Update) {
-					var err error
-					switch update.Message.Text {
-					case "/start":
-						err = app.StartHandler(bot, &update)
-					case "/self":
-						err = app.SelfHandler(bot, &update)
-					default:
-						err = echoAuthHandler(bot, &update)
-					}
-					if err != nil {
-						app.Log.Println(err)
-					}
-				}(update)
+			if update.Message == nil || update.Message.Text == "" || update.ChatType() != telbot.ChatTypePrivate {
+				continue
 			}
+			go func(update telbot.Update) {
+				var err error
+				switch update.Message.Text {
+				case "/start":
+					err = app.StartHandler(update)
+				case "/self":
+					err = app.SelfHandler(update)
+				case "/up":
+					getLinksConv.Start(update)
+				default:
+					if conv.HasConversation(update.ChatId(), update.UserId()) {
+						err = conv.HandleUpdate(update)
+					}
+				}
+				if err != nil {
+					app.Log.Println(err)
+				}
+			}(update)
 		}
 	}()
 

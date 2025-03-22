@@ -59,7 +59,6 @@ func (app *App) JobCancelHandler(update telbot.Update) error {
 	return err
 }
 
-// TODO: Cleanup this mess! there must be cleaner and better way
 func (app *App) LinksMessageHandler(update telbot.Update) error {
 	params := telbot.TextMessageParams{ChatId: update.ChatId()}
 
@@ -94,6 +93,8 @@ func (app *App) LinksMessageHandler(update telbot.Update) error {
 
 	res := <-job.resChan
 	close(job.resChan)
+	close(job.cancelChan)
+	delete(app.jobMap, jobId)
 
 	if err := res.error; err != nil {
 		app.Log.Println(err)

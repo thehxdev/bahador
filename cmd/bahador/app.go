@@ -2,23 +2,28 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"mime"
 	"net/http"
 	"os"
+	"os/exec"
 	"path"
+	"path/filepath"
 	"strconv"
 	"time"
 
 	"github.com/thehxdev/bahador/db"
 	"github.com/thehxdev/bahador/utils"
 	"github.com/thehxdev/telbot"
-	"github.com/thehxdev/telbot/types"
 )
 
 const (
-	maxFileSize  int64  = 210 * 1024 * 1024
+	// maxFileSize  int64  = 4 * 1024 * 1024 * 1024
+	// filePartSize int64  = 200 * 1024 * 1024
+	maxFileSize  int64  = 4 * 1024 * 1024 * 1024
+	filePartSize int64  = 200 * 1024 * 1024
 	workersCount int    = 5
 	tokenEnvVar  string = "BAHADOR_BOT_TOKEN"
 	hostEnvVar   string = "BAHADOR_BOT_HOST"
@@ -26,14 +31,14 @@ const (
 	// dlPathEnvVar string = "BAHADOR_DL_PATH"
 )
 
-type dlResult struct {
+type jobResult struct {
 	error
-	msg *types.Message
+	fileIds []string
 }
 
 type dlJob struct {
 	url        string
-	resChan    chan dlResult
+	resChan    chan jobResult
 	cancelChan chan struct{}
 }
 
@@ -56,6 +61,10 @@ type App struct {
 }
 
 func AppNew(ctx context.Context) (*App, error) {
+	if _, err := exec.LookPath("7zz"); err != nil {
+		return nil, fmt.Errorf("7zz command not found: %v", err)
+	}
+
 	createNewDB := false
 	databasePath := utils.GetNonEmptyEnv(dbPathEnvVar)
 	if _, err := os.Open(databasePath); err != nil {
@@ -80,14 +89,13 @@ func AppNew(ctx context.Context) (*App, error) {
 	}
 
 	for range workersCount {
-		// go a.worker(ctx)
-		go a.workerWithPipe(ctx)
+		go a.worker(ctx)
 	}
 
 	return a, nil
 }
 
-func (app *App) workerWithPipe(ctx context.Context) {
+func (app *App) worker(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -96,10 +104,11 @@ func (app *App) workerWithPipe(ctx context.Context) {
 		}
 
 		job := <-app.jobChan
-		res := dlResult{}
 
-		res.error = func() error {
-			jobCtx, jobCancel := context.WithTimeout(ctx, time.Minute*30)
+		job.resChan <- func() jobResult {
+			app.Log.Println("processing job:", job.url)
+
+			jobCtx, jobCancel := context.WithCancel(ctx)
 			defer jobCancel()
 
 			go func() {
@@ -107,119 +116,183 @@ func (app *App) workerWithPipe(ctx context.Context) {
 				jobCancel()
 			}()
 
+			app.Log.Println("getting remote file info")
 			fname, fsize, err := getRemoteFileInfo(jobCtx, job.url)
 			if err != nil {
-				return err
+				return jobResult{error: err}
 			}
-			if fname == "" {
-				return ErrEmptyFileName
-			}
+
 			if fsize > maxFileSize {
-				return ErrMaxFileSize
+				return jobResult{error: ErrMaxFileSize}
 			}
 
-			dlReq, err := http.NewRequestWithContext(jobCtx, "GET", job.url, nil)
-			if err != nil {
-				return err
+			var result jobResult
+			if fsize <= filePartSize {
+				app.Log.Println("processing job with pipe")
+				result = app.processJobWithPipe(jobCtx, fname, fsize, job)
+			} else {
+				app.Log.Println("processing job with download")
+				result = app.processJobWithDownload(jobCtx, fname, fsize, job)
 			}
 
-			dlResp, err := http.DefaultClient.Do(dlReq)
-			if err != nil {
-				return err
-			}
-			defer dlResp.Body.Close()
-
-			if dlResp.StatusCode != http.StatusOK {
-				return ErrNonZeroStatusCode
-			}
-
-			errChan := make(chan error, 2)
-			pipeReader, pipeWriter := io.Pipe()
-			defer func() {
-				pipeWriter.Close()
-				pipeReader.Close()
-			}()
-
-			go func() {
-				n, err := io.Copy(pipeWriter, dlResp.Body)
-				if err != nil {
-					goto ret
-				}
-				if n != fsize {
-					err = ErrIncompleteDownload
-				}
-			ret:
-				pipeWriter.CloseWithError(err)
-				errChan <- err
-			}()
-
-			go func() {
-				uparams := telbot.UploadParams{
-					ChatId: app.Bot.Self.Id,
-					Method: "sendDocument",
-				}
-				msg, err := app.Bot.UploadFile(jobCtx, uparams, telbot.FileReader{
-					Reader:   pipeReader,
-					Kind:     "document",
-					FileName: fname,
-				})
-				if err != nil {
-					pipeReader.CloseWithError(err)
-				}
-				res.msg = msg
-				errChan <- err
-			}()
-
-			for range 2 {
-				select {
-				case err = <-errChan:
-					if err != nil {
-						return err
-					}
-				case <-jobCtx.Done():
-					return jobCtx.Err()
-				}
-			}
-
-			return nil
+			return result
 		}()
-
-		if res.error == nil && res.msg != nil && res.msg.Document != nil {
-			// TODO: add uploaded file info to database
-		}
-
-		job.resChan <- res
 	}
 }
 
-// func (app *App) worker(ctx context.Context) {
-// 	for {
-// 		select {
-// 		case <-ctx.Done():
-// 			return
-// 		default:
-// 		}
-// 		job := <-app.jobChan
-// 		func() {
-// 			res := dlResult{}
-// 			defer func() { job.resChan <- res }()
-// 			dlFile, err := app.downloadAndSaveFile(ctx, job.url)
-// 			if err != nil {
-// 				res.error = err
-// 				return
-// 			}
-// 			defer os.Remove(dlFile.name)
-// 			app.Log.Println("file downloaded:", dlFile.name)
-// 			app.Log.Println("uploading file:", dlFile.name)
-// 			msg, err := app.UploadFile(dlFile.name, dlFile.name)
-// 			if err != nil {
-// 				res.error = err
-// 				return
-// 			}
-// 			res.msg = msg
-// 		}()
-// 	}
-// }
+func (app *App) processJobWithPipe(ctx context.Context, fname string, fsize int64, job dlJob) (res jobResult) {
+	if fname == "" {
+		res.error = ErrEmptyFileName
+		return
+	}
+
+	res.error = func() error {
+		pCtx, pCancel := context.WithTimeout(ctx, time.Minute*30)
+		defer pCancel()
+
+		dlReq, err := http.NewRequestWithContext(pCtx, "GET", job.url, nil)
+		if err != nil {
+			return err
+		}
+
+		dlResp, err := http.DefaultClient.Do(dlReq)
+		if err != nil {
+			return err
+		}
+		defer dlResp.Body.Close()
+
+		if dlResp.StatusCode != http.StatusOK {
+			return ErrNonZeroStatusCode
+		}
+
+		errChan := make(chan error, 2)
+		pipeReader, pipeWriter := io.Pipe()
+		defer func() {
+			pipeWriter.Close()
+			pipeReader.Close()
+		}()
+
+		go func() {
+			n, err := io.Copy(pipeWriter, dlResp.Body)
+			if err != nil {
+				goto ret
+			}
+			if n != fsize {
+				err = ErrIncompleteDownload
+			}
+		ret:
+			pipeWriter.CloseWithError(err)
+			errChan <- err
+		}()
+
+		go func() {
+			uparams := telbot.UploadParams{
+				ChatId: app.Bot.Self.Id,
+				Method: "sendDocument",
+			}
+			msg, err := app.Bot.UploadFile(pCtx, uparams, telbot.FileReader{
+				Reader:   pipeReader,
+				Kind:     "document",
+				FileName: fname,
+			})
+			if err != nil {
+				pipeReader.CloseWithError(err)
+			} else {
+				res.fileIds = []string{msg.Document.FileId}
+			}
+			errChan <- err
+		}()
+
+		for range 2 {
+			select {
+			case err = <-errChan:
+				if err != nil {
+					return err
+				}
+			case <-pCtx.Done():
+				return pCtx.Err()
+			}
+		}
+
+		return nil
+	}()
+
+	return
+}
+
+func (app *App) processJobWithDownload(ctx context.Context, fname string, fsize int64, job dlJob) (res jobResult) {
+	tmpDir, err := os.MkdirTemp(os.TempDir(), "bahador_*")
+	if err != nil {
+		res.error = err
+		return
+	}
+	defer os.RemoveAll(tmpDir)
+
+	app.Log.Println("tmp dir:", tmpDir)
+
+	pCtx, pCancel := context.WithTimeout(ctx, time.Minute*90)
+	defer pCancel()
+
+	fileDlPath := filepath.Join(tmpDir, fname)
+	app.Log.Println("file download path:", fileDlPath)
+	app.Log.Println("downloading file")
+	err = app.downloadAndSaveFile(pCtx, fileDlPath, fsize, job.url)
+	if err != nil {
+		res.error = err
+		return
+	}
+	archivePath := filepath.Join(tmpDir, fname+".7z")
+	app.Log.Println("archive path:", archivePath)
+	parts, err := SplitFileToParts(ctx, fileDlPath, archivePath, "200000k")
+	if err != nil {
+		res.error = err
+		return
+	}
+	app.Log.Printf("parts: %#v\n", parts)
+
+	partsCount := len(parts)
+	fileIdChan := make(chan string, partsCount)
+	for _, p := range parts {
+		go func(pPath string) {
+			var fileId string = ""
+			defer func() { fileIdChan <- fileId }()
+			f, err := os.Open(pPath)
+			if err != nil {
+				return
+			}
+			defer f.Close()
+			uparams := telbot.UploadParams{
+				ChatId: app.Bot.Self.Id,
+				Method: "sendDocument",
+			}
+			app.Log.Println("uploading file:", pPath)
+			msg, err := app.Bot.UploadFile(pCtx, uparams, telbot.FileReader{Reader: f, FileName: filepath.Base(pPath), Kind: "document"})
+			if err != nil {
+				return
+			}
+			fileId = msg.Document.FileId
+		}(p)
+	}
+
+	fileIds := []string{}
+	for range partsCount {
+		select {
+		case id := <-fileIdChan:
+			if id == "" {
+				// FIXME: this error must be `ErrIncompleteUpload`
+				res.error = ErrIncompleteDownload
+				return
+			}
+			fileIds = append(fileIds, id)
+		case <-pCtx.Done():
+			res.error = pCtx.Err()
+			return
+		}
+	}
+
+	res.fileIds = fileIds
+	return
+}
 
 func getFileName(resp *http.Response) string {
 	if cd := resp.Header.Get("Content-Disposition"); cd != "" {
@@ -259,53 +332,29 @@ func getRemoteFileInfo(ctx context.Context, fileUrl string) (fname string, fsize
 	return
 }
 
-// func (app *App) downloadAndSaveFile(ctx context.Context, fileUrl string) (*dlFile, error) {
-// 	fname, fsize, err := getRemoteFileInfo(ctx, fileUrl)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	if fname == "" {
-// 		return nil, ErrEmptyFileName
-// 	}
-// 	if fsize > maxFileSize {
-// 		return nil, ErrMaxFileSize
-// 	}
-// 	req, err := http.NewRequestWithContext(ctx, "GET", fileUrl, nil)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	resp, err := http.DefaultClient.Do(req)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	defer resp.Body.Close()
-// 	app.Log.Printf("downloading file (%dKB): %s\n", fsize/1024, fname)
-// 	f, err := os.Create(fname)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	ioCtx, ioCancel := context.WithTimeout(ctx, time.Minute*60)
-// 	defer ioCancel()
-// 	done := make(chan error)
-// 	go func() {
-// 		var n int64
-// 		var err error
-// 		n, err = io.Copy(f, resp.Body)
-// 		if n != fsize {
-// 			err = errors.New("file does not downloaded properly")
-// 		}
-// 		done <- err
-// 	}()
-// 	select {
-// 	case err := <-done:
-// 		if err != nil {
-// 			return nil, err
-// 		}
-// 		return &dlFile{name: fname, size: fsize}, nil
-// 	case <-ctx.Done():
-// 		return nil, ioCtx.Err()
-// 	}
-// }
+func (app *App) downloadAndSaveFile(ctx context.Context, fpath string, fsize int64, fileUrl string) error {
+	req, err := http.NewRequestWithContext(ctx, "GET", fileUrl, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	f, err := os.Create(fpath)
+	if err != nil {
+		return err
+	}
+	n, err := utils.CopyWithContext(ctx, f, resp.Body)
+	if err != nil {
+		return err
+	}
+	if n != fsize {
+		return ErrIncompleteDownload
+	}
+	return nil
+}
 
 func (app *App) InitBot(ctx context.Context) error {
 	botHost := utils.GetNonEmptyEnv(hostEnvVar)

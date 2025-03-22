@@ -78,7 +78,7 @@ func (app *App) LinksMessageHandler(update telbot.Update) error {
 	jobId, _ := utils.GenRandInt64(0, 100)
 	job := dlJob{
 		url:        update.Message.Text,
-		resChan:    make(chan dlResult, 1),
+		resChan:    make(chan jobResult, 1),
 		cancelChan: make(chan struct{}, 1),
 	}
 	app.jobChan <- job
@@ -93,8 +93,18 @@ func (app *App) LinksMessageHandler(update telbot.Update) error {
 
 	res := <-job.resChan
 	close(job.resChan)
-	close(job.cancelChan)
+
+	select {
+	case _, ok := <-job.cancelChan:
+		if ok {
+			close(job.cancelChan)
+		}
+	default:
+	}
+
 	delete(app.jobMap, jobId)
+
+	var urls []string
 
 	if err := res.error; err != nil {
 		app.Log.Println(err)
@@ -113,7 +123,12 @@ func (app *App) LinksMessageHandler(update telbot.Update) error {
 		goto done
 	}
 
-	statText, _ = url.JoinPath(app.Bot.BaseFileUrl, res.msg.Document.FileId)
+	urls = []string{}
+	for _, fileId := range res.fileIds {
+		u, _ := url.JoinPath(app.Bot.BaseFileUrl, fileId)
+		urls = append(urls, u)
+	}
+	statText = strings.Join(urls, "\n\n")
 
 done:
 	update.EditMessage(telbot.EditMessageTextParams{

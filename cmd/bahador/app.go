@@ -243,7 +243,7 @@ func (app *App) processJobWithDownload(ctx context.Context, fname string, fsize 
 	}
 	archivePath := filepath.Join(tmpDir, fname+".7z")
 	app.Log.Println("archive path:", archivePath)
-	parts, err := SplitFileToParts(ctx, fileDlPath, archivePath, "200000k")
+	parts, err := SplitFileToParts(ctx, fileDlPath, archivePath, "200m")
 	if err != nil {
 		res.error = err
 		return

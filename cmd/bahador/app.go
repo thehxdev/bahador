@@ -23,8 +23,7 @@ const (
 	tokenEnvVar  string = "BAHADOR_BOT_TOKEN"
 	hostEnvVar   string = "BAHADOR_BOT_HOST"
 	dbPathEnvVar string = "BAHADOR_DB_PATH"
-	dlPathEnvVar string = "BAHADOR_DL_PATH"
-	urlRegex     string = `https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)`
+	// dlPathEnvVar string = "BAHADOR_DL_PATH"
 )
 
 type dlResult struct {
@@ -33,14 +32,15 @@ type dlResult struct {
 }
 
 type dlJob struct {
-	url     string
-	resChan chan dlResult
+	url        string
+	resChan    chan dlResult
+	cancelChan chan struct{}
 }
 
-type dlFile struct {
-	name string
-	size int64
-}
+// type dlFile struct {
+// 	name string
+// 	size int64
+// }
 
 type App struct {
 	Bot *telbot.Bot
@@ -48,6 +48,11 @@ type App struct {
 	Log *log.Logger
 
 	jobChan chan dlJob
+	jobMap  map[int64](chan struct{})
+	// jobMap  struct {
+	// 	mu *sync.RWMutex
+	// 	table map[int64](chan struct{})
+	// }
 }
 
 func AppNew(ctx context.Context) (*App, error) {
@@ -71,6 +76,7 @@ func AppNew(ctx context.Context) (*App, error) {
 		DB:      db,
 		Log:     log.New(os.Stderr, "[bahador] ", log.Ldate|log.Lshortfile),
 		jobChan: make(chan dlJob, workersCount),
+		jobMap:  make(map[int64]chan struct{}),
 	}
 
 	for range workersCount {
@@ -95,6 +101,11 @@ func (app *App) workerWithPipe(ctx context.Context) {
 		res.error = func() error {
 			jobCtx, jobCancel := context.WithTimeout(ctx, time.Minute*30)
 			defer jobCancel()
+
+			go func() {
+				<-job.cancelChan
+				jobCancel()
+			}()
 
 			fname, fsize, err := getRemoteFileInfo(jobCtx, job.url)
 			if err != nil {
@@ -174,6 +185,7 @@ func (app *App) workerWithPipe(ctx context.Context) {
 		}()
 
 		if res.error == nil && res.msg != nil && res.msg.Document != nil {
+			// TODO: add uploaded file info to database
 		}
 
 		job.resChan <- res

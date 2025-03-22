@@ -1,41 +1,18 @@
 package main
 
 import (
-	"context"
+	"fmt"
 	"net/url"
-	"os"
+	"regexp"
 	"strconv"
-	"time"
+	"strings"
 
+	"github.com/thehxdev/bahador/utils"
 	"github.com/thehxdev/telbot"
 	conv "github.com/thehxdev/telbot/ext/conversation"
-	"github.com/thehxdev/telbot/types"
 )
 
-func (app *App) UploadFile(path, fname string) (*types.Message, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	fr := telbot.FileReader{
-		FileName: fname,
-		Reader:   file,
-		Kind:     "document",
-	}
-
-	uploadCtx, uploadCancel := context.WithTimeout(context.Background(), time.Hour*1)
-	defer uploadCancel()
-
-	bot := app.Bot
-	msg, err := bot.UploadFile(uploadCtx, telbot.UploadParams{ChatId: bot.Self.Id, Method: "sendDocument"}, fr)
-	if err != nil {
-		return nil, err
-	}
-
-	return msg, nil
-}
+var httpUrlRegexp *regexp.Regexp = regexp.MustCompile(`https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)`)
 
 func (app *App) StartHandler(update telbot.Update) error {
 	_, err := update.SendMessage(telbot.TextMessageParams{
@@ -61,6 +38,28 @@ func (app *App) UploadCommandHandler(update telbot.Update) error {
 	return err
 }
 
+func (app *App) JobCancelHandler(update telbot.Update) error {
+	jobIdStr, _ := strings.CutPrefix(update.Message.Text, "/cancel")
+	jobId, err := strconv.ParseInt(jobIdStr, 10, 64)
+	if err != nil {
+		return err
+	}
+	var msgText string
+	if cancelChan, ok := app.jobMap[jobId]; ok {
+		close(cancelChan)
+		delete(app.jobMap, jobId)
+		msgText = fmt.Sprintf("Job %d canceled.", jobId)
+	} else {
+		msgText = "Job does not exist."
+	}
+	_, err = update.SendMessage(telbot.TextMessageParams{
+		ChatId: update.ChatId(),
+		Text:   msgText,
+	})
+	return err
+}
+
+// TODO: Cleanup this mess! there must be cleaner and better way
 func (app *App) LinksMessageHandler(update telbot.Update) error {
 	params := telbot.TextMessageParams{ChatId: update.ChatId()}
 
@@ -70,14 +69,25 @@ func (app *App) LinksMessageHandler(update telbot.Update) error {
 		return conv.EndConversation
 	}
 
-	job := dlJob{
-		url:     update.Message.Text,
-		resChan: make(chan dlResult, 1),
+	if !httpUrlRegexp.MatchString(update.Message.Text) {
+		params.Text = "Your message does not match to a valid HTTPS URL."
+		params.ReplyToMsgId = update.MessageId()
+		update.SendMessage(params)
+		return conv.EndConversation
 	}
 
+	jobId, _ := utils.GenRandInt64(0, 100)
+	job := dlJob{
+		url:        update.Message.Text,
+		resChan:    make(chan dlResult, 1),
+		cancelChan: make(chan struct{}, 1),
+	}
 	app.jobChan <- job
 
-	statText := "Got it! Processing URL..."
+	// FIXME: handle collition (same jobId with another jobId)
+	app.jobMap[jobId] = job.cancelChan
+
+	statText := fmt.Sprintf("Processing URL...\n/cancel%d", jobId)
 	params.Text = statText
 	params.ReplyToMsgId = update.MessageId()
 	statMsg, _ := update.SendMessage(params)

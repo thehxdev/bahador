@@ -15,6 +15,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 
 	"github.com/joho/godotenv"
 	dbpkg "github.com/thehxdev/bahador/db"
@@ -88,6 +89,16 @@ func main() {
 		app.Log.Println("polling updates")
 		for update := range updatesChan {
 			if update.Message == nil || update.Message.Text == "" || update.ChatType() != telbot.ChatTypePrivate {
+				continue
+			}
+			// TODO: routing at this point is a mess. find a better way for routing
+			if strings.HasPrefix(update.Message.Text, "/cancel") {
+				go func() {
+					err := app.JobCancelHandler(update)
+					if err != nil {
+						app.Log.Println(err)
+					}
+				}()
 				continue
 			}
 			go func(update telbot.Update) {

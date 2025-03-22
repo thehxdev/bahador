@@ -94,12 +94,12 @@ func main() {
 
 			go func() {
 				var err error
-				command, isCommand := update.Message.Command()
-				if isCommand {
-					if strings.HasPrefix(command, "/cancel") {
+				if update.Message.IsCommand() {
+					text := update.Message.Text
+					if strings.HasPrefix(text, "/cancel") {
 						err = app.JobCancelHandler(update)
 					} else {
-						switch update.Message.Text {
+						switch text {
 						case "/start":
 							err = app.StartHandler(update)
 						case "/self":

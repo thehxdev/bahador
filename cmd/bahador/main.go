@@ -91,26 +91,25 @@ func main() {
 			if update.Message == nil || update.Message.Text == "" || update.ChatType() != telbot.ChatTypePrivate {
 				continue
 			}
-			// TODO: routing at this point is a mess. find a better way for routing
-			if strings.HasPrefix(update.Message.Text, "/cancel") {
-				go func() {
-					err := app.JobCancelHandler(update)
-					if err != nil {
-						app.Log.Println(err)
-					}
-				}()
-				continue
-			}
-			go func(update telbot.Update) {
+
+			go func() {
 				var err error
-				switch update.Message.Text {
-				case "/start":
-					err = app.StartHandler(update)
-				case "/self":
-					err = app.SelfHandler(update)
-				case "/up":
-					getLinksConv.Start(update)
-				default:
+				command, isCommand := update.Message.Command()
+				if isCommand {
+					if strings.HasPrefix(command, "/cancel") {
+						err = app.JobCancelHandler(update)
+					} else {
+						switch update.Message.Text {
+						case "/start":
+							err = app.StartHandler(update)
+						case "/self":
+							err = app.SelfHandler(update)
+						case "/up":
+							getLinksConv.Start(update)
+						default:
+						}
+					}
+				} else {
 					if conv.HasConversation(update.ChatId(), update.UserId()) {
 						err = conv.HandleUpdate(update)
 					}
@@ -118,7 +117,7 @@ func main() {
 				if err != nil {
 					app.Log.Println(err)
 				}
-			}(update)
+			}()
 		}
 	}()
 

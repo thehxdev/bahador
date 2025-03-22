@@ -5,7 +5,7 @@ go 1.24.1
 require (
 	github.com/glebarez/go-sqlite v1.22.0
 	github.com/joho/godotenv v1.5.1
-	github.com/thehxdev/telbot v0.0.1
+	github.com/thehxdev/telbot v0.0.2
 )
 
 require (

@@ -15,7 +15,7 @@ func SplitFileToParts(ctx context.Context, filePath, outPath, maxPartSize string
 		return nil, errors.New("output path must be a file path with .7z extention")
 	}
 
-	cmdCtx, cmdCancel := context.WithTimeout(ctx, time.Minute*5)
+	cmdCtx, cmdCancel := context.WithTimeout(ctx, time.Minute*15)
 	defer cmdCancel()
 
 	args := []string{"a", "-t7z", "-m0=lzma2", "-mx=1", "-v"+maxPartSize, "-sdel", outPath, filePath}

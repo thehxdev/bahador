@@ -18,7 +18,7 @@ func SplitFileToParts(ctx context.Context, filePath, outPath, maxPartSize string
 	cmdCtx, cmdCancel := context.WithTimeout(ctx, time.Minute*15)
 	defer cmdCancel()
 
-	args := []string{"a", "-t7z", "-m0=lzma2", "-mx=1", "-v"+maxPartSize, "-sdel", outPath, filePath}
+	args := []string{"a", "-t7z", "-m0=lzma2", "-mx=1", "-v" + maxPartSize, "-sdel", outPath, filePath}
 	errChan := make(chan error, 1)
 	go func() {
 		cmd := exec.Command("7zz", args...)
@@ -41,7 +41,7 @@ func SplitFileToParts(ctx context.Context, filePath, outPath, maxPartSize string
 	}
 
 	outDir := filepath.Dir(outPath)
-	files, err := filepath.Glob(outDir+"/*.7z.*")
+	files, err := filepath.Glob(outDir + "/*.7z.*")
 	if err != nil {
 		return nil, err
 	}

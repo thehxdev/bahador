@@ -75,21 +75,41 @@ func (app *App) LinksMessageHandler(update telbot.Update) error {
 		return conv.EndConversation
 	}
 
-	jobId, _ := utils.GenRandInt64(0, 100)
 	job := dlJob{
 		url:        update.Message.Text,
 		resChan:    make(chan jobResult, 1),
 		cancelChan: make(chan struct{}, 1),
 	}
-	app.jobChan <- job
 
-	// FIXME: handle collition (same jobId with another jobId)
+	// FIXME: handle collision (same jobId with another jobId)
+	jobId, _ := utils.GenRandInt64(0, 100)
 	app.jobMap[jobId] = job.cancelChan
 
-	statText := fmt.Sprintf("Processing URL...\n/cancel%d", jobId)
-	params.Text = statText
-	params.ReplyToMsgId = update.MessageId()
-	statMsg, _ := update.SendMessage(params)
+	chatId := update.ChatId()
+	statSuffix := fmt.Sprintf("\n/cancel%d", jobId)
+
+	statMsg, _ := update.SendMessage(telbot.TextMessageParams{
+		ChatId:       chatId,
+		Text:         "Processing URL..." + statSuffix,
+		ReplyToMsgId: update.MessageId(),
+	})
+
+	job.eventLogger = func(format string, v ...any) {
+		var logText string
+		if len(v) > 0 {
+			logText = fmt.Sprintf(format, v)
+		} else {
+			logText = fmt.Sprint(format)
+		}
+		app.Log.Println(logText)
+		update.EditMessage(telbot.EditMessageTextParams{
+			ChatId:    chatId,
+			MessageId: statMsg.Id,
+			Text:      logText + statSuffix,
+		})
+	}
+
+	app.jobChan <- job
 
 	res := <-job.resChan
 	close(job.resChan)
@@ -105,7 +125,7 @@ func (app *App) LinksMessageHandler(update telbot.Update) error {
 	delete(app.jobMap, jobId)
 
 	var urls []string
-
+	var statText string
 	if err := res.error; err != nil {
 		app.Log.Println(err)
 		switch err.(type) {
@@ -132,7 +152,7 @@ func (app *App) LinksMessageHandler(update telbot.Update) error {
 
 done:
 	update.EditMessage(telbot.EditMessageTextParams{
-		ChatId:    statMsg.Chat.Id,
+		ChatId:    chatId,
 		MessageId: statMsg.Id,
 		Text:      statText,
 	})

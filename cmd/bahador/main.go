@@ -1,7 +1,5 @@
 package main
 
-// TODO: report back download/upload status periodicly in bot to user.
-
 // TODO: Download files bigger than maxFileLimit to /tmp and break that in smaller parts with `rar` command.
 // upload all parts to bot, get download link for each file and send all links to user.
 

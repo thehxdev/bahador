@@ -20,15 +20,12 @@ import (
 )
 
 const (
-	// maxFileSize  int64  = 4 * 1024 * 1024 * 1024
-	// filePartSize int64  = 200 * 1024 * 1024
 	maxFileSize  int64  = 4 * 1024 * 1024 * 1024
 	filePartSize int64  = 200 * 1024 * 1024
 	workersCount int    = 5
 	tokenEnvVar  string = "BAHADOR_BOT_TOKEN"
 	hostEnvVar   string = "BAHADOR_BOT_HOST"
 	dbPathEnvVar string = "BAHADOR_DB_PATH"
-	// dlPathEnvVar string = "BAHADOR_DL_PATH"
 )
 
 type jobResult struct {
@@ -37,15 +34,11 @@ type jobResult struct {
 }
 
 type dlJob struct {
-	url        string
-	resChan    chan jobResult
-	cancelChan chan struct{}
+	url         string
+	resChan     chan jobResult
+	cancelChan  chan struct{}
+	eventLogger func(string, ...any)
 }
-
-// type dlFile struct {
-// 	name string
-// 	size int64
-// }
 
 type App struct {
 	Bot *telbot.Bot
@@ -104,9 +97,10 @@ func (app *App) worker(ctx context.Context) {
 		}
 
 		job := <-app.jobChan
+		logEvent := job.eventLogger
 
-		job.resChan <- func() jobResult {
-			app.Log.Println("processing job:", job.url)
+		res := func() jobResult {
+			// app.Log.Println("processing job:", job.url)
 
 			jobCtx, jobCancel := context.WithCancel(ctx)
 			defer jobCancel()
@@ -116,7 +110,7 @@ func (app *App) worker(ctx context.Context) {
 				jobCancel()
 			}()
 
-			app.Log.Println("getting remote file info")
+			app.Log.Println("Getting remote file information")
 			fname, fsize, err := getRemoteFileInfo(jobCtx, job.url)
 			if err != nil {
 				return jobResult{error: err}
@@ -128,19 +122,21 @@ func (app *App) worker(ctx context.Context) {
 
 			var result jobResult
 			if fsize <= filePartSize {
-				app.Log.Println("processing job with pipe")
-				result = app.processJobWithPipe(jobCtx, fname, fsize, job)
+				app.Log.Println("Processing job with pipe")
+				result = app.processJobWithPipe(jobCtx, fname, fsize, job.url, logEvent)
 			} else {
-				app.Log.Println("processing job with download")
-				result = app.processJobWithDownload(jobCtx, fname, fsize, job)
+				app.Log.Println("Processing job with download")
+				result = app.processJobWithDownload(jobCtx, fname, fsize, job.url, logEvent)
 			}
 
 			return result
 		}()
+
+		job.resChan <- res
 	}
 }
 
-func (app *App) processJobWithPipe(ctx context.Context, fname string, fsize int64, job dlJob) (res jobResult) {
+func (app *App) processJobWithPipe(ctx context.Context, fname string, fsize int64, url string, logEvent func(string, ...any)) (res jobResult) {
 	if fname == "" {
 		res.error = ErrEmptyFileName
 		return
@@ -150,7 +146,7 @@ func (app *App) processJobWithPipe(ctx context.Context, fname string, fsize int6
 		pCtx, pCancel := context.WithTimeout(ctx, time.Minute*30)
 		defer pCancel()
 
-		dlReq, err := http.NewRequestWithContext(pCtx, "GET", job.url, nil)
+		dlReq, err := http.NewRequestWithContext(pCtx, "GET", url, nil)
 		if err != nil {
 			return err
 		}
@@ -171,6 +167,8 @@ func (app *App) processJobWithPipe(ctx context.Context, fname string, fsize int6
 			pipeWriter.Close()
 			pipeReader.Close()
 		}()
+
+		logEvent("Processing download and upload with pipe")
 
 		go func() {
 			n, err := io.Copy(pipeWriter, dlResp.Body)
@@ -220,7 +218,7 @@ func (app *App) processJobWithPipe(ctx context.Context, fname string, fsize int6
 	return
 }
 
-func (app *App) processJobWithDownload(ctx context.Context, fname string, fsize int64, job dlJob) (res jobResult) {
+func (app *App) processJobWithDownload(ctx context.Context, fname string, fsize int64, url string, logEvent func(string, ...any)) (res jobResult) {
 	tmpDir, err := os.MkdirTemp(os.TempDir(), "bahador_*")
 	if err != nil {
 		res.error = err
@@ -234,24 +232,29 @@ func (app *App) processJobWithDownload(ctx context.Context, fname string, fsize 
 	defer pCancel()
 
 	fileDlPath := filepath.Join(tmpDir, fname)
-	app.Log.Println("file download path:", fileDlPath)
-	app.Log.Println("downloading file")
-	err = app.downloadAndSaveFile(pCtx, fileDlPath, fsize, job.url)
+	app.Log.Println("File download path:", fileDlPath)
+	logEvent("Downloading the file...")
+
+	err = app.downloadAndSaveFile(pCtx, fileDlPath, fsize, url)
 	if err != nil {
 		res.error = err
 		return
 	}
+
 	archivePath := filepath.Join(tmpDir, fname+".7z")
-	app.Log.Println("archive path:", archivePath)
+	app.Log.Println("Archive path:", archivePath)
+	logEvent("Creating archive files...")
 	parts, err := SplitFileToParts(ctx, fileDlPath, archivePath, "200m")
 	if err != nil {
 		res.error = err
 		return
 	}
-	app.Log.Printf("parts: %#v\n", parts)
+	// app.Log.Printf("parts: %#v\n", parts)
 
 	partsCount := len(parts)
 	fileIdChan := make(chan string, partsCount)
+
+	logEvent("Uploading %d parts...", partsCount)
 	for _, p := range parts {
 		go func(pPath string) {
 			var fileId string = ""
@@ -265,7 +268,7 @@ func (app *App) processJobWithDownload(ctx context.Context, fname string, fsize 
 				ChatId: app.Bot.Self.Id,
 				Method: "sendDocument",
 			}
-			app.Log.Println("uploading file:", pPath)
+			app.Log.Println("Uploading file:", pPath)
 			msg, err := app.Bot.UploadFile(pCtx, uparams, telbot.FileReader{Reader: f, FileName: filepath.Base(pPath), Kind: "document"})
 			if err != nil {
 				return

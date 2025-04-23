@@ -86,7 +86,7 @@ func main() {
 	go func() {
 		app.Log.Println("polling updates")
 		for update := range updatesChan {
-			if update.Message == nil || update.Message.Text == "" || update.ChatType() != telbot.ChatTypePrivate {
+			if messageIsNotValid(update) {
 				continue
 			}
 
@@ -120,4 +120,8 @@ func main() {
 	}()
 
 	<-appCtx.Done()
+}
+
+func messageIsNotValid(update telbot.Update) bool {
+	return update.Message == nil || update.Message.Text == "" || update.ChatType() != telbot.ChatTypePrivate
 }

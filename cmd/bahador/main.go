@@ -79,6 +79,9 @@ func main() {
 		Timeout:        getUpdatesTimeout,
 		AllowedUpdates: []string{"message"},
 	})
+	if err != nil {
+		app.Log.Fatal(err)
+	}
 
 	uploadCommandAuth := app.AuthMiddleware(app.UploadCommandHandler)
 	getLinksConv, _ := conv.New([]telbot.UpdateHandlerFunc{uploadCommandAuth, app.LinksMessageHandler})

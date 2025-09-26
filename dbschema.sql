@@ -23,4 +23,3 @@ CREATE TABLE files (
     FOREIGN KEY(message_id) REFERENCES messages(message_id),
     FOREIGN KEY(user_id) REFERENCES users(user_id)
 );
-

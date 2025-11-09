@@ -275,9 +275,9 @@ func (app *App) processJobWithDownload(ctx context.Context, fname string, fsize 
 			app.Log.Println("Uploading file:", pPath)
 			files := []telbot.IFileInfo{
 				&telbot.FileReader{
-					Reader: f,
+					Reader:   f,
 					FileName: filepath.Base(pPath),
-					Kind: "document",
+					Kind:     "document",
 				},
 			}
 			msg, err := app.Bot.UploadFile(pCtx, uparams, files)

@@ -91,8 +91,8 @@ func (app *App) LinksMessageHandler(c *conv.Conversation, update telbot.Update) 
 	statSuffix := fmt.Sprintf("\n/cancel%d", jobId)
 
 	statMsg, _ := app.Bot.SendMessage(context.Background(), telbot.TextMessageParams{
-		ChatId:       chatId,
-		Text:         "Processing URL..." + statSuffix,
+		ChatId:           chatId,
+		Text:             "Processing URL..." + statSuffix,
 		ReplyToMessageId: update.MessageId(),
 	})
 

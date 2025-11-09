@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -15,7 +16,7 @@ import (
 var httpUrlRegexp *regexp.Regexp = regexp.MustCompile(`https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)`)
 
 func (app *App) StartHandler(update telbot.Update) error {
-	_, err := update.SendMessage(telbot.TextMessageParams{
+	_, err := app.Bot.SendMessage(context.Background(), telbot.TextMessageParams{
 		ChatId: update.ChatId(),
 		Text:   "Hello, World!",
 	})
@@ -23,18 +24,19 @@ func (app *App) StartHandler(update telbot.Update) error {
 }
 
 func (app *App) SelfHandler(update telbot.Update) error {
-	_, err := update.SendMessage(telbot.TextMessageParams{
+	_, err := app.Bot.SendMessage(context.Background(), telbot.TextMessageParams{
 		ChatId: update.ChatId(),
 		Text:   strconv.Itoa(update.UserId()),
 	})
 	return err
 }
 
-func (app *App) UploadCommandHandler(update telbot.Update) error {
-	_, err := update.SendMessage(telbot.TextMessageParams{
+func (app *App) UploadCommandHandler(c *conv.Conversation, update telbot.Update) error {
+	_, err := app.Bot.SendMessage(context.Background(), telbot.TextMessageParams{
 		ChatId: update.ChatId(),
 		Text:   "Send a download link.",
 	})
+	c.Next = app.LinksMessageHandler
 	return err
 }
 
@@ -52,27 +54,27 @@ func (app *App) JobCancelHandler(update telbot.Update) error {
 	} else {
 		msgText = "Job does not exist."
 	}
-	_, err = update.SendMessage(telbot.TextMessageParams{
+	_, err = app.Bot.SendMessage(context.Background(), telbot.TextMessageParams{
 		ChatId: update.ChatId(),
 		Text:   msgText,
 	})
 	return err
 }
 
-func (app *App) LinksMessageHandler(update telbot.Update) error {
+func (app *App) LinksMessageHandler(c *conv.Conversation, update telbot.Update) error {
 	params := telbot.TextMessageParams{ChatId: update.ChatId()}
 
 	if update.Message.Text == "" {
 		params.Text = "Your message does not contain any text data."
-		update.SendMessage(params)
-		return conv.EndConversation
+		app.Bot.SendMessage(context.Background(), params)
+		return &conv.EndConversation{}
 	}
 
 	if !httpUrlRegexp.MatchString(update.Message.Text) {
 		params.Text = "Your message does not match to a valid HTTPS URL."
-		params.ReplyToMsgId = update.MessageId()
-		update.SendMessage(params)
-		return conv.EndConversation
+		params.ReplyToMessageId = update.MessageId()
+		app.Bot.SendMessage(context.Background(), params)
+		return &conv.EndConversation{}
 	}
 
 	job := dlJob{
@@ -88,10 +90,10 @@ func (app *App) LinksMessageHandler(update telbot.Update) error {
 	chatId := update.ChatId()
 	statSuffix := fmt.Sprintf("\n/cancel%d", jobId)
 
-	statMsg, _ := update.SendMessage(telbot.TextMessageParams{
+	statMsg, _ := app.Bot.SendMessage(context.Background(), telbot.TextMessageParams{
 		ChatId:       chatId,
 		Text:         "Processing URL..." + statSuffix,
-		ReplyToMsgId: update.MessageId(),
+		ReplyToMessageId: update.MessageId(),
 	})
 
 	job.eventLogger = func(format string, v ...any) {
@@ -102,7 +104,7 @@ func (app *App) LinksMessageHandler(update telbot.Update) error {
 			logText = fmt.Sprint(format)
 		}
 		app.Log.Println(logText)
-		update.EditMessage(telbot.EditMessageTextParams{
+		app.Bot.EditMessageText(context.Background(), telbot.EditMessageTextParams{
 			ChatId:    chatId,
 			MessageId: statMsg.Id,
 			Text:      logText + statSuffix,
@@ -151,10 +153,10 @@ func (app *App) LinksMessageHandler(update telbot.Update) error {
 	statText = strings.Join(urls, "\n\n")
 
 done:
-	update.EditMessage(telbot.EditMessageTextParams{
+	app.Bot.EditMessageText(context.Background(), telbot.EditMessageTextParams{
 		ChatId:    chatId,
 		MessageId: statMsg.Id,
 		Text:      statText,
 	})
-	return conv.EndConversation
+	return &conv.EndConversation{}
 }

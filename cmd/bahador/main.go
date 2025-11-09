@@ -69,11 +69,10 @@ func main() {
 		if err := db.Close(); err != nil {
 			db.Log.Println(err)
 		}
-		app.Bot.Shutdown()
 		appCancel()
 	}()
 
-	updatesChan, err := bot.StartPolling(telbot.UpdateParams{
+	updatesChan, err := bot.StartPolling(appCtx, telbot.UpdateParams{
 		Offset:         0,
 		Limit:          getUpdatesLimit,
 		Timeout:        getUpdatesTimeout,
@@ -83,8 +82,7 @@ func main() {
 		app.Log.Fatal(err)
 	}
 
-	uploadCommandAuth := app.AuthMiddleware(app.UploadCommandHandler)
-	getLinksConv, _ := conv.New([]telbot.UpdateHandlerFunc{uploadCommandAuth, app.LinksMessageHandler})
+	uploadWithAuthHandler := app.ConvAuthMiddleware(app.UploadCommandHandler)
 
 	go func() {
 		app.Log.Println("polling updates")
@@ -106,13 +104,13 @@ func main() {
 						case "/self":
 							err = app.SelfHandler(update)
 						case "/up":
-							getLinksConv.Start(update)
+							conv.Start(uploadWithAuthHandler, update)
 						default:
 						}
 					}
 				} else {
 					if conv.HasConversation(update.ChatId(), update.UserId()) {
-						err = conv.HandleUpdate(update)
+						err = conv.CallNext(update)
 					}
 				}
 				if err != nil {

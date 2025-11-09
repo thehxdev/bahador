@@ -17,6 +17,7 @@ import (
 	"github.com/thehxdev/bahador/db"
 	"github.com/thehxdev/bahador/utils"
 	"github.com/thehxdev/telbot"
+	conv "github.com/thehxdev/telbot/ext/conversation"
 )
 
 const (
@@ -188,11 +189,14 @@ func (app *App) processJobWithPipe(ctx context.Context, fname string, fsize int6
 				ChatId: app.Bot.Self.Id,
 				Method: "sendDocument",
 			}
-			msg, err := app.Bot.UploadFile(pCtx, uparams, telbot.FileReader{
-				Reader:   pipeReader,
-				Kind:     "document",
-				FileName: fname,
-			})
+			files := []telbot.IFileInfo{
+				&telbot.FileReader{
+					Reader:   pipeReader,
+					Kind:     "document",
+					FileName: fname,
+				},
+			}
+			msg, err := app.Bot.UploadFile(pCtx, uparams, files)
 			if err != nil {
 				pipeReader.CloseWithError(err)
 			} else {
@@ -269,7 +273,14 @@ func (app *App) processJobWithDownload(ctx context.Context, fname string, fsize 
 				Method: "sendDocument",
 			}
 			app.Log.Println("Uploading file:", pPath)
-			msg, err := app.Bot.UploadFile(pCtx, uparams, telbot.FileReader{Reader: f, FileName: filepath.Base(pPath), Kind: "document"})
+			files := []telbot.IFileInfo{
+				&telbot.FileReader{
+					Reader: f,
+					FileName: filepath.Base(pPath),
+					Kind: "document",
+				},
+			}
+			msg, err := app.Bot.UploadFile(pCtx, uparams, files)
 			if err != nil {
 				return
 			}
@@ -366,6 +377,18 @@ func (app *App) InitBot(ctx context.Context) error {
 		return err
 	}
 	app.Bot = bot
+	if err != nil {
+		return err
+	}
 	app.Log.Println("telbot api host:", botHost)
 	return nil
+}
+
+func (app *App) ConvAuthMiddleware(next conv.ConversationHandler) conv.ConversationHandler {
+	return func(c *conv.Conversation, update telbot.Update) error {
+		if _, err := app.DB.UserAuthenticate(update.Message.From.Id); err == nil {
+			return next(c, update)
+		}
+		return nil
+	}
 }

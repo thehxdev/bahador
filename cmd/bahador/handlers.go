@@ -84,7 +84,7 @@ func (app *App) LinksMessageHandler(c *conv.Conversation, update telbot.Update) 
 	}
 
 	// FIXME: handle collision (same jobId with another jobId)
-	jobId, _ := utils.GenRandInt64(0, 100)
+	jobId, _ := utils.GenRandInt64(0, 0x7FFFFFFFFFFFFFFF)
 	app.jobMap[jobId] = job.cancelChan
 
 	chatId := update.ChatId()

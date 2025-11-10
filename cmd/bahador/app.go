@@ -48,10 +48,6 @@ type App struct {
 
 	jobChan chan dlJob
 	jobMap  map[int64](chan struct{})
-	// jobMap  struct {
-	// 	mu *sync.RWMutex
-	// 	table map[int64](chan struct{})
-	// }
 }
 
 func AppNew(ctx context.Context) (*App, error) {

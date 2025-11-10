@@ -377,9 +377,6 @@ func (app *App) InitBot(ctx context.Context) error {
 		return err
 	}
 	app.Bot = bot
-	if err != nil {
-		return err
-	}
 	app.Log.Println("telbot api host:", botHost)
 	return nil
 }

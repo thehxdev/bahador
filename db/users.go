@@ -10,10 +10,10 @@ type User struct {
 }
 
 var userCache = &struct {
-	mu   *sync.RWMutex
+	mu   sync.RWMutex
 	data map[int]bool
 }{
-	mu:   &sync.RWMutex{},
+	mu:   sync.RWMutex{},
 	data: make(map[int]bool),
 }
 
@@ -78,9 +78,7 @@ func (db *DB) UserDelete(userId int) error {
 		return err
 	}
 	userCache.mu.Lock()
-	if _, ok := userCache.data[userId]; ok {
-		delete(userCache.data, userId)
-	}
+	delete(userCache.data, userId)
 	userCache.mu.Unlock()
 	return nil
 }
